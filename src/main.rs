@@ -19,6 +19,7 @@ use std::str::FromStr;
 use tokio_core::reactor::{Handle, Core};
 use tokio_core::io::IoStream;
 use std::mem;
+use tokio_signal::unix::{Signal, SIGUSR1, SIGUSR2};
 
 use librespot::core::authentication::{get_credentials, Credentials};
 use librespot::core::cache::Cache;
@@ -210,6 +211,8 @@ struct Main {
 
     discovery: Option<DiscoveryStream>,
     signal: IoStream<()>,
+    sigusr1: IoStream<i32>,
+    sigusr2: IoStream<i32>,
 
     spirc: Option<Spirc>,
     spirc_task: Option<SpircTask>,
@@ -236,6 +239,8 @@ impl Main {
             spirc_task: None,
             shutdown: false,
             signal: tokio_signal::ctrl_c(&handle).flatten_stream().boxed(),
+            sigusr1: Signal::new(SIGUSR1, &handle).flatten_stream().boxed(),
+            sigusr2: Signal::new(SIGUSR2, &handle).flatten_stream().boxed(),
         };
 
         if setup.enable_discovery {
@@ -314,6 +319,20 @@ impl Future for Main {
                     return Ok(Async::Ready(()));
                 }
 
+                progress = true;
+            }
+
+            if let Async::Ready(Some(i32)) = self.sigusr1.poll().unwrap() {
+                if let Some(ref spirc) = self.spirc {
+                    spirc.play_pause();
+                }
+                progress = true;
+            }
+
+            if let Async::Ready(Some(i32)) = self.sigusr2.poll().unwrap() {
+                if let Some(ref spirc) = self.spirc {
+                    spirc.next();
+                }
                 progress = true;
             }
 
